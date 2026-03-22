@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+dist/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Backend Data (RAG Indices/Uploads)
+backend/data/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

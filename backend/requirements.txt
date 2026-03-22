@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+sentence-transformers
+faiss-cpu
+pypdf
+beautifulsoup4
+requests
+numpy
+scikit-learn
+python-multipart
+python-docx
+jinja2
+ollama
