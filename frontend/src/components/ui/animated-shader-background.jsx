@@ -71,7 +71,8 @@ const AnoAI = ({ className = "" }) => {
 
         void main() {
           vec2 shake = vec2(sin(iTime * 1.2) * 0.005, cos(iTime * 2.1) * 0.005);
-          vec2 p = ((gl_FragCoord.xy + shake * iResolution.xy) - iResolution.xy * 0.5) / iResolution.y * mat2(6.0, -4.0, 4.0, 6.0);
+          vec2 p = ((gl_FragCoord.xy + shake * iResolution.xy) - iResolution.xy * 0.5) / iResolution.y * mat2(4.5, -3.0, 3.0, 4.5);
+          p.x -= 2.0; // Offset to the right
           vec2 v;
           vec4 o = vec4(0.0);
 

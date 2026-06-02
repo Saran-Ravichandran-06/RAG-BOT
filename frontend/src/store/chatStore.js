@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { createChat, getChatList, queryChat, uploadFile } from '../api/client';
+import { createChat, getChatList, queryChatStream, uploadFile } from '../api/client';
 
 const useChatStore = create((set, get) => ({
     chats: [],
@@ -64,34 +64,52 @@ const useChatStore = create((set, get) => ({
         if (!activeChatId) return;
 
         const userMsg = { role: 'user', content };
+        const tempBotMsg = { role: 'assistant', content: '', sources: [], evaluation: null, id: Date.now() };
 
-        // Optimistic update
+        // Optimistic update with empty bot message
         set((state) => ({
             messages: {
                 ...state.messages,
-                [activeChatId]: [...(state.messages[activeChatId] || []), userMsg]
+                [activeChatId]: [...(state.messages[activeChatId] || []), userMsg, tempBotMsg]
             },
             isLoading: true
         }));
 
         try {
-            const res = await queryChat(activeChatId, content);
-            const data = res.data;
+            const result = await queryChatStream(activeChatId, content, (currentText) => {
+                // Update the temporary bot message progressively
+                set((state) => {
+                    const chatMessages = state.messages[activeChatId];
+                    const updatedMessages = chatMessages.map((msg) =>
+                        msg.id === tempBotMsg.id ? { ...msg, content: currentText } : msg
+                    );
+                    return {
+                        messages: {
+                            ...state.messages,
+                            [activeChatId]: updatedMessages
+                        }
+                    };
+                });
+            });
 
-            const botMsg = {
-                role: 'assistant',
-                content: data.answer,
-                evaluation: data.evaluation,
-                sources: data.context
-            };
-
-            set((state) => ({
-                messages: {
-                    ...state.messages,
-                    [activeChatId]: [...(state.messages[activeChatId] || []), botMsg]
-                }
-            }));
-
+            // Final update with evaluation and sources
+            set((state) => {
+                const chatMessages = state.messages[activeChatId];
+                const updatedMessages = chatMessages.map((msg) =>
+                    msg.id === tempBotMsg.id ? { 
+                        ...msg, 
+                        content: result.answer,
+                        evaluation: result.evaluation,
+                        sources: result.context
+                    } : msg
+                );
+                return {
+                    messages: {
+                        ...state.messages,
+                        [activeChatId]: updatedMessages
+                    }
+                };
+            });
         } catch (error) {
             console.error("Failed to send message", error);
         } finally {

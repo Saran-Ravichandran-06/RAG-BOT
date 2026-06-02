@@ -39,7 +39,7 @@ const Sidebar = ({ isOpen, onClose, onSelectChat, onNewChat, currentChatId }) =>
     return (
         <div
             className={clsx(
-                "fixed top-16 left-0 h-[calc(100vh-64px)] bg-gray-950/80 backdrop-blur-md text-white transition-transform duration-300 ease-in-out z-20 w-[280px] border-r border-gray-800",
+                "fixed top-16 left-0 h-[calc(100vh-64px)] bg-black/40 backdrop-blur-xl text-white transition-transform duration-300 ease-in-out z-20 w-[280px] border-r border-white/10 shadow-[4px_0_24px_rgba(0,0,0,0.2)]",
                 isOpen ? "translate-x-0" : "-translate-x-full"
             )}
         >

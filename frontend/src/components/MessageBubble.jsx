@@ -7,21 +7,21 @@ const MessageBubble = ({ message }) => {
 
     return (
         <div className={clsx(
-            "flex gap-4 w-full p-6 mx-auto max-w-4xl",
-            isBot ? "bg-transparent justify-start" : "bg-transparent justify-end flex-row-reverse"
+            "flex gap-4 w-full p-4 mx-auto",
+            isBot ? "justify-start" : "justify-end"
         )}>
             <div className={clsx(
-                "flex-1 min-w-0 max-w-[99%]",
-                !isBot && "text-right"
+                "min-w-0",
+                isBot ? "max-w-3xl" : "max-w-xl"
             )}>
                 <div className={clsx(
-                    "prose prose-invert max-w-none text-sm leading-relaxed rounded-2xl px-5 py-3 shadow-sm inline-block text-left",
-                    "bg-indigo-600/20 text-indigo-100"
+                    "prose prose-invert max-w-none text-sm leading-relaxed rounded-2xl px-5 py-3 shadow-sm inline-block text-left backdrop-blur-md border",
+                    isBot 
+                      ? "bg-white/10 border-white/10 text-gray-100" 
+                      : "bg-blue-500/20 border-blue-500/30 text-white"
                 )}>
                     <ReactMarkdown>{message.content}</ReactMarkdown>
                 </div>
-
-                {/* Evaluation badge removed */}
             </div>
         </div>
     );
