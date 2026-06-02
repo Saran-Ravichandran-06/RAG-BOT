@@ -48,3 +48,28 @@ Question:
             if "connection" in str(e).lower() or "connect" in str(e).lower():
                 return f"Error: Failed to connect to Ollama at {settings.OLLAMA_BASE_URL}. Ensure Ollama is running and accessible."
             return f"Error generating response: {str(e)}"
+
+    @classmethod
+    def generate_stream(cls, context: list[str], question: str):
+        import time
+        trimmed_context = [c[:1000] for c in context]
+        context_block = "\n---\n".join(trimmed_context)
+        
+        if len(context_block) > 4000:
+            context_block = context_block[:4000] + "... (truncated)"
+            
+        final_prompt = cls.construct_prompt(context_block, question)
+        
+        print(f"[{time.strftime('%H:%M:%S')}] RAG Prompt Length: {len(final_prompt)} chars (Stream)")
+        
+        try:
+            for chunk in OllamaManager.generate_stream(
+                system=cls.SYSTEM_PROMPT,
+                prompt=final_prompt
+            ):
+                yield chunk.get('response', '')
+        except Exception as e:
+            if "connection" in str(e).lower() or "connect" in str(e).lower():
+                yield f"Error: Failed to connect to Ollama at {settings.OLLAMA_BASE_URL}. Ensure Ollama is running and accessible."
+            else:
+                yield f"Error generating response: {str(e)}"
