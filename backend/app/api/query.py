@@ -1,10 +1,13 @@
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from app.vectorstore.faiss_store import FaissVectorStore
 from app.embeddings.model import EmbeddingModel
 from app.rag.generator import RAGGenerator
 from app.evaluation.metrics import Evaluator
 from app.core.config import settings
+import json
+import time
 
 router = APIRouter()
 
@@ -14,7 +17,6 @@ class QueryRequest(BaseModel):
 @router.post("/{chat_id}/query")
 async def query_chat(chat_id: str, request: QueryRequest):
     try:
-        import time
         t0 = time.time()
         
         # 1. Embed Query
@@ -34,77 +36,63 @@ async def query_chat(chat_id: str, request: QueryRequest):
         
         if not context:
             print(f"[{time.strftime('%H:%M:%S')}] NO CONTEXT FOUND.")
-            return {
-                "answer": "I don't have enough information.",
-                "context": [],
-                "evaluation": {
-                    "groundedness_score": 0,
-                    "faithfulness": True,
-                    "hallucination": False,
-                    "confidence": "Low"
-                }
-            }
+            def no_context_stream():
+                yield f"data: {json.dumps({'token': 'I don\'t have enough information.'})}\n\n"
+                yield f"data: {json.dumps({'done': True, 'evaluation': {'groundedness_score': 0, 'faithfulness': True, 'hallucination': False, 'confidence': 'Low'}, 'context': []})}\n\n"
+            return StreamingResponse(no_context_stream(), media_type="text/event-stream")
 
-        # 3. Generate
         print(f"[{time.strftime('%H:%M:%S')}] Step 3: Starting generation...")
-        answer = RAGGenerator.generate(context, request.query)
-        if answer.startswith("Error"):
-            raise HTTPException(status_code=500, detail=answer)
+        
+        def generate_and_persist():
+            answer_text = ""
+            for token in RAGGenerator.generate_stream(context, request.query):
+                answer_text += token
+                yield f"data: {json.dumps({'token': token})}\n\n"
+                
+            t3 = time.time()
+            print(f"[{time.strftime('%H:%M:%S')}] Step 3: Generation took {t3-t2:.2f}s")
             
-        t3 = time.time()
-        print(f"[{time.strftime('%H:%M:%S')}] Step 3: Generation took {t3-t2:.2f}s")
-        
-        # 4. Evaluate
-        evaluation = {
-            "groundedness_score": 0.0,
-            "faithfulness": True,
-            "hallucination": False,
-            "confidence": "Evaluation Disabled"
-        }
-        if settings.ENABLE_EVALUATION:
-            print(f"[{time.strftime('%H:%M:%S')}] Step 4: Starting Evaluation...")
-            evaluation = Evaluator.evaluate(answer, context)
-            t4 = time.time()
-            print(f"[{time.strftime('%H:%M:%S')}] Step 4: Evaluation took {t4-t3:.2f}s")
-        else:
-            t4 = t3
-            print(f"[{time.strftime('%H:%M:%S')}] Step 4: Evaluation SKIPPED")
-        
-        response_data = {
-            "answer": answer,
-            "context": results, # Return text + score
-            "evaluation": evaluation
-        }
+            evaluation = {
+                "groundedness_score": 0.0,
+                "faithfulness": True,
+                "hallucination": False,
+                "confidence": "Evaluation Disabled"
+            }
+            if settings.ENABLE_EVALUATION:
+                print(f"[{time.strftime('%H:%M:%S')}] Step 4: Starting Evaluation...")
+                evaluation = Evaluator.evaluate(answer_text, context)
+                t4 = time.time()
+                print(f"[{time.strftime('%H:%M:%S')}] Step 4: Evaluation took {t4-t3:.2f}s")
+            else:
+                t4 = t3
+                print(f"[{time.strftime('%H:%M:%S')}] Step 4: Evaluation SKIPPED")
+                
+            yield f"data: {json.dumps({'done': True, 'evaluation': evaluation, 'context': results})}\n\n"
+            
+            # Persist History
+            chat_dir = settings.CHATS_DIR / chat_id
+            chat_dir.mkdir(parents=True, exist_ok=True)
+            history_file = chat_dir / "messages.json"
+            
+            history = []
+            if history_file.exists():
+                with open(history_file, "r") as f:
+                    history = json.load(f)
+            
+            history.append({"role": "user", "content": request.query})
+            history.append({
+                "role": "assistant", 
+                "content": answer_text,
+                "sources": results,
+                "evaluation": evaluation
+            })
+            
+            with open(history_file, "w") as f:
+                json.dump(history, f, indent=2)
+                
+            print(f"[{time.strftime('%H:%M:%S')}] --- TOTAL TIME: {t4-t0:.2f}s ---\n")
 
-        # 5. Persist History
-        import json
-        import os
-        
-        chat_dir = settings.CHATS_DIR / chat_id
-        chat_dir.mkdir(parents=True, exist_ok=True)
-        history_file = chat_dir / "messages.json"
-        
-        history = []
-        if history_file.exists():
-            with open(history_file, "r") as f:
-                history = json.load(f)
-        
-        # Add User Message
-        history.append({"role": "user", "content": request.query})
-        
-        # Add Assistant Message (simplified for storage)
-        history.append({
-            "role": "assistant", 
-            "content": answer,
-            "sources": results,
-            "evaluation": evaluation
-        })
-        
-        with open(history_file, "w") as f:
-            json.dump(history, f, indent=2)
-            
-        print(f"[{time.strftime('%H:%M:%S')}] --- TOTAL TIME: {t4-t0:.2f}s ---\n")
-        return response_data
+        return StreamingResponse(generate_and_persist(), media_type="text/event-stream")
 
     except Exception as e:
         import traceback

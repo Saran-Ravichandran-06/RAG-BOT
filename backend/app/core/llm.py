@@ -37,3 +37,33 @@ class OllamaManager:
         except Exception as e:
             print(f"Ollama Error: {str(e)}")
             raise e
+
+    @classmethod
+    def generate_stream(cls, system: str, prompt: str, temperature: float = None, num_ctx: int = None):
+        url = f"{settings.OLLAMA_BASE_URL}/api/generate"
+        
+        payload = {
+            "model": settings.LLM_MODEL,
+            "system": system,
+            "prompt": prompt,
+            "stream": True,
+            "options": {
+                "temperature": temperature if temperature is not None else settings.LLM_TEMPERATURE,
+                "num_ctx": num_ctx if num_ctx is not None else settings.LLM_CONTEXT_LENGTH,
+                "num_gpu": settings.LLM_NUM_GPU,
+            },
+            "keep_alive": settings.LLM_KEEP_ALIVE
+        }
+        
+        print(f"[{time.strftime('%H:%M:%S')}] Ollama Stream Request: model={settings.LLM_MODEL}, layers={settings.LLM_NUM_GPU}")
+        
+        try:
+            response = requests.post(url, json=payload, stream=True, timeout=120)
+            response.raise_for_status()
+            
+            for line in response.iter_lines():
+                if line:
+                    yield json.loads(line)
+        except Exception as e:
+            print(f"Ollama Stream Error: {str(e)}")
+            raise e
