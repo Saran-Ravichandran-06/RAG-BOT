@@ -155,20 +155,66 @@ const ChatPage = () => {
             }
         }
 
+        // Add empty assistant bubble
+        const tempId = Date.now();
+        setMessages(prev => [...prev, {
+            id: tempId,
+            role: 'assistant',
+            content: '',
+            sources: [],
+            evaluation: null
+        }]);
+
         try {
-            const response = await axios.post(`http://localhost:8000/chat/${currentId}/query`, {
-                query: text
+            const response = await fetch(`http://localhost:8000/chat/${currentId}/query`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: text })
             });
 
-            setMessages(prev => [...prev, {
-                role: 'assistant',
-                content: response.data.answer,
-                sources: response.data.context,
-                evaluation: response.data.evaluation
-            }]);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n');
+                
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.substring(6));
+                            if (data.token) {
+                                setMessages(prev => prev.map(msg => 
+                                    msg.id === tempId ? { ...msg, content: msg.content + data.token } : msg
+                                ));
+                            }
+                            if (data.done) {
+                                setMessages(prev => prev.map(msg => 
+                                    msg.id === tempId ? { 
+                                        ...msg, 
+                                        evaluation: data.evaluation,
+                                        sources: data.context
+                                    } : msg
+                                ));
+                            }
+                        } catch (e) {
+                            console.error("Failed to parse SSE", e);
+                        }
+                    }
+                }
+            }
         } catch (error) {
             console.error("Failed to send message:", error);
-            setMessages(prev => [...prev, { role: 'assistant', content: "Sorry, I encountered an error." }]);
+            setMessages(prev => prev.map(msg => 
+                msg.id === tempId ? { ...msg, content: "Sorry, I encountered an error." } : msg
+            ));
         } finally {
             setIsLoading(false);
         }
@@ -182,9 +228,14 @@ const ChatPage = () => {
     };
 
     const handleWorldClick = () => {
-        window.open('https://google.com', '_blank');
-        setIsUrlMode(true);
-        setInputValue(""); // Clear any existing text
+        if (!isUrlMode) {
+            window.open('https://google.com', '_blank');
+            setIsUrlMode(true);
+            setInputValue(""); // Clear any existing text
+        } else {
+            setIsUrlMode(false);
+            setInputValue(""); // Reset if toggled off
+        }
     };
 
     return (
@@ -274,7 +325,7 @@ const ChatPage = () => {
                         )}>
 
                             {/* Left Icons */}
-                            <div className="flex items-center gap-2 pb-2 text-black">
+                            <div className="flex items-center gap-2 pb-2 text-gray-700">
                                 <button
                                     onClick={() => fileInputRef.current?.click()}
                                     className="p-1.5 hover:bg-gray-200 rounded-full transition-colors hover:text-black"
@@ -286,7 +337,7 @@ const ChatPage = () => {
                                     onClick={handleWorldClick}
                                     className={clsx(
                                         "p-1.5 rounded-full transition-colors hover:text-black",
-                                        isUrlMode ? "text-blue-600 bg-blue-100" : "hover:bg-gray-200 text-black"
+                                        isUrlMode ? "text-blue-600 bg-blue-100" : "hover:bg-gray-200"
                                     )}
                                     title="Browse Website"
                                 >
