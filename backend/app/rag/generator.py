@@ -21,18 +21,22 @@ Question:
     @classmethod
     def generate(cls, context: list[str], question: str):
         import time
+        prompt_start = time.time()
         # Limit context to avoid 10k+ character prompts that slow down Phi3
         trimmed_context = [c[:1000] for c in context] # limit each chunk
         context_block = "\n---\n".join(trimmed_context)
-        
+
         # Final safety truncation
         if len(context_block) > 4000:
             context_block = context_block[:4000] + "... (truncated)"
-            
+
         final_prompt = cls.construct_prompt(context_block, question)
-        
-        print(f"[{time.strftime('%H:%M:%S')}] RAG Prompt Length: {len(final_prompt)} chars")
-        
+
+        print(
+            f"[{time.strftime('%H:%M:%S')}] RAG prompt construction took "
+            f"{time.time() - prompt_start:.4f}s (length={len(final_prompt)} chars)"
+        )
+
         try:
             start_gen = time.time()
             response = OllamaManager.generate(
@@ -41,7 +45,7 @@ Question:
             )
             duration = time.time() - start_gen
             print(f"[{time.strftime('%H:%M:%S')}] RAG Generation returned in {duration:.2f}s")
-            
+
             return response['response']
         except Exception as e:
             # Check for connection errors
@@ -52,16 +56,20 @@ Question:
     @classmethod
     def generate_stream(cls, context: list[str], question: str):
         import time
+        prompt_start = time.time()
         trimmed_context = [c[:1000] for c in context]
         context_block = "\n---\n".join(trimmed_context)
-        
+
         if len(context_block) > 4000:
             context_block = context_block[:4000] + "... (truncated)"
-            
+
         final_prompt = cls.construct_prompt(context_block, question)
-        
-        print(f"[{time.strftime('%H:%M:%S')}] RAG Prompt Length: {len(final_prompt)} chars (Stream)")
-        
+
+        print(
+            f"[{time.strftime('%H:%M:%S')}] RAG prompt construction took "
+            f"{time.time() - prompt_start:.4f}s (length={len(final_prompt)} chars, stream=True)"
+        )
+
         try:
             for chunk in OllamaManager.generate_stream(
                 system=cls.SYSTEM_PROMPT,
