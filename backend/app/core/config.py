@@ -11,8 +11,8 @@ class Settings:
     CHATS_DIR = DATA_DIR / "chats"
     
     # RAG Settings
-    CHUNK_SIZE = 800
-    CHUNK_OVERLAP = 100
+    CHUNK_SIZE = 600
+    CHUNK_OVERLAP = 50
     EMBEDDING_MODEL = "all-MiniLM-L6-v2"
     LLM_MODEL = "phi3:latest"
     OLLAMA_BASE_URL = "http://127.0.0.1:11434"
@@ -26,6 +26,7 @@ class Settings:
     # Vector Search
     TOP_K = 3
     SIMILARITY_THRESHOLD = 0.3  # Filter out low relevance
+    RETRIEVAL_CONFIDENCE_THRESHOLD = 0.45  # Skip LLM when best retrieved chunk is weak
     
     # Evaluation
     ENABLE_EVALUATION = False

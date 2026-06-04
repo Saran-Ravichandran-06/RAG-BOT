@@ -3,6 +3,7 @@ from pydantic import BaseModel
 import uuid
 import shutil
 from app.core.config import settings
+from app.vectorstore.faiss_store import FaissVectorStore
 from typing import List
 
 router = APIRouter()
@@ -48,6 +49,7 @@ async def list_chats():
 async def delete_chat(chat_id: str):
     chat_dir = settings.CHATS_DIR / chat_id
     if chat_dir.exists():
+        FaissVectorStore.invalidate(chat_id)
         shutil.rmtree(chat_dir)
         return {"status": "success", "message": "Chat deleted"}
     raise HTTPException(status_code=404, detail="Chat not found")
