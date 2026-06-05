@@ -29,6 +29,7 @@ async def query_chat(chat_id: str, request: QueryRequest):
         embedder = EmbeddingModel.get_instance()
         query_emb = embedder.encode([request.query], convert_to_numpy=True)
         t1 = time.time()
+        log_metric("Embedding Device", EmbeddingModel.get_device())
         log_metric("Query Embedding", f"{t1-t0:.2f}s")
 
         # 2. Retrieve

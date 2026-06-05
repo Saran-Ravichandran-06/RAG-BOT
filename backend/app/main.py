@@ -8,6 +8,9 @@ import requests
 import time
 import subprocess
 
+def log_startup(label: str, value: str):
+    print(f"[{time.strftime('%H:%M:%S')}] {label}: {value}")
+
 def check_nvidia_smi():
     try:
         result = subprocess.run(["nvidia-smi"], capture_output=True, text=True, timeout=5)
@@ -17,35 +20,110 @@ def check_nvidia_smi():
     except Exception as e:
         return False, f"nvidia-smi not found or failed: {str(e)}"
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # 1. Preload the embedding model
-    print(f"[{time.strftime('%H:%M:%S')}] Preloading Embedding Model ({settings.EMBEDDING_MODEL})...")
-    EmbeddingModel.get_instance()
-    
-    # 2. Verify GPU Usage for Ollama
+def log_torch_gpu_diagnostics():
+    try:
+        import torch
+
+        cuda_available = torch.cuda.is_available()
+        log_startup("torch.cuda.is_available()", str(cuda_available))
+        log_startup("PyTorch CUDA version", str(torch.version.cuda))
+
+        if not cuda_available:
+            log_startup("Embedding GPU", "CUDA unavailable; embeddings will run on CPU")
+            return
+
+        device_index = torch.cuda.current_device()
+        props = torch.cuda.get_device_properties(device_index)
+        total_vram_gb = props.total_memory / (1024 ** 3)
+        free_vram_gb = None
+
+        if hasattr(torch.cuda, "mem_get_info"):
+            free_bytes, _total_bytes = torch.cuda.mem_get_info(device_index)
+            free_vram_gb = free_bytes / (1024 ** 3)
+
+        log_startup("GPU name", props.name)
+        log_startup("Total VRAM", f"{total_vram_gb:.2f} GB")
+        if free_vram_gb is not None:
+            log_startup("Available VRAM", f"{free_vram_gb:.2f} GB")
+    except Exception as e:
+        log_startup("WARNING GPU diagnostics failed", str(e))
+
+def check_ollama_ps_cli():
+    try:
+        result = subprocess.run(["ollama", "ps"], capture_output=True, text=True, timeout=5)
+        if result.returncode != 0:
+            return None, f"ollama ps returned non-zero exit code: {result.stderr.strip()}"
+        return result.stdout.strip(), None
+    except Exception as e:
+        return None, f"ollama ps unavailable: {str(e)}"
+
+def log_ollama_gpu_diagnostics():
     print(f"[{time.strftime('%H:%M:%S')}] Verifying Ollama GPU usage...")
     has_gpu, gpu_msg = check_nvidia_smi()
     if has_gpu:
-        print(f"[{time.strftime('%H:%M:%S')}] GPU Check: {gpu_msg}")
+        log_startup("GPU Check", gpu_msg)
     else:
-        print(f"[{time.strftime('%H:%M:%S')}] WARNING GPU Check: {gpu_msg} (Ollama might fallback to CPU)")
+        log_startup("WARNING GPU Check", f"{gpu_msg} (Ollama might fallback to CPU)")
 
     try:
-        url = f"{settings.OLLAMA_BASE_URL}/api/tags"
-        response = requests.get(url, timeout=5)
+        tags_url = f"{settings.OLLAMA_BASE_URL}/api/tags"
+        response = requests.get(tags_url, timeout=5)
         if response.status_code == 200:
-            print(f"[{time.strftime('%H:%M:%S')}] Ollama server is reachable.")
-            print(f"[{time.strftime('%H:%M:%S')}] GPU Offloading is configured to use {settings.LLM_NUM_GPU} layers.")
-            print(f"[{time.strftime('%H:%M:%S')}] TIP: To validate GPU usage during inference:")
-            print(f"[{time.strftime('%H:%M:%S')}] 1. Run 'ollama ps' in terminal. Look for '100% GPU' under PROCESSOR.")
-            print(f"[{time.strftime('%H:%M:%S')}] 2. Run 'nvidia-smi' to check VRAM utilization.")
-            print(f"[{time.strftime('%H:%M:%S')}] NOTE: If Ollama runs on CPU, ensure you have the GPU-enabled version of Ollama installed.")
+            log_startup("Ollama server", "reachable")
+            log_startup("Ollama GPU layers configured", str(settings.LLM_NUM_GPU))
         else:
-            print(f"[{time.strftime('%H:%M:%S')}] WARNING: Ollama server returned status code {response.status_code}")
+            log_startup("WARNING Ollama server", f"returned status code {response.status_code}")
+            return
     except requests.exceptions.RequestException:
-        print(f"[{time.strftime('%H:%M:%S')}] WARNING: Could not connect to Ollama server at {settings.OLLAMA_BASE_URL}. Ensure it is running.")
-        
+        log_startup("WARNING Ollama server", f"could not connect to {settings.OLLAMA_BASE_URL}")
+        return
+
+    running_models = []
+    try:
+        ps_url = f"{settings.OLLAMA_BASE_URL}/api/ps"
+        ps_response = requests.get(ps_url, timeout=5)
+        if ps_response.status_code == 200:
+            running_models = ps_response.json().get("models", [])
+            log_startup("Ollama running models", str(len(running_models)))
+    except requests.exceptions.RequestException as e:
+        log_startup("WARNING Ollama /api/ps", str(e))
+
+    cli_output, cli_error = check_ollama_ps_cli()
+    if cli_output:
+        processor_lines = [line for line in cli_output.splitlines() if settings.LLM_MODEL in line or "PROCESSOR" in line]
+        if processor_lines:
+            log_startup("ollama ps", " | ".join(processor_lines))
+
+        output_upper = cli_output.upper()
+        if "CPU" in output_upper and "GPU" not in output_upper:
+            log_startup("WARNING Ollama GPU", "ollama ps indicates CPU execution")
+        elif "GPU" in output_upper:
+            log_startup("Ollama GPU", "ollama ps reports GPU execution")
+        elif running_models:
+            log_startup("WARNING Ollama GPU", "running model found, but processor could not be verified")
+    elif cli_error:
+        log_startup("WARNING ollama ps", cli_error)
+
+    if not running_models:
+        log_startup("Ollama GPU verification", "no active model yet; run a query, then validate with ollama ps and nvidia-smi")
+
+    # Manual validation:
+    # - Run `ollama ps` during a query and check the PROCESSOR column for GPU usage.
+    # - Run `nvidia-smi` during generation and confirm VRAM/utilization increases.
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 1. Log PyTorch/CUDA diagnostics before loading embeddings
+    log_torch_gpu_diagnostics()
+
+    # 2. Preload the embedding model
+    print(f"[{time.strftime('%H:%M:%S')}] Preloading Embedding Model ({settings.EMBEDDING_MODEL})...")
+    EmbeddingModel.get_instance()
+    log_startup("Embedding device", EmbeddingModel.get_device())
+
+    # 3. Verify Ollama GPU visibility and provide validation hints
+    log_ollama_gpu_diagnostics()
+
     yield
 
 app = FastAPI(title=settings.PROJECT_Title, version=settings.PROJECT_VERSION, lifespan=lifespan)
