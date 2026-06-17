@@ -1,3 +1,5 @@
+<div align="center">
+
 # RAG BOT - Intelligent Document Assistant
 
 [![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)](https://www.python.org/)
@@ -6,6 +8,8 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
 
 A modern, full-stack RAG (Retrieval-Augmented Generation) application that allows you to chat with your documents and web content in real-time.
+
+</div>
 
 ## ✨ Features
 
